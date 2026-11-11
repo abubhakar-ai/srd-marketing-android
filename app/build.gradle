@@ -6,15 +6,15 @@ android {
     applicationId 'com.srd.marketing'
     minSdk 24
     targetSdk 34
-    versionCode 7
-    versionName '1.6'
+    versionCode 8
+    versionName '1.7'
   }
   signingConfigs {
     srd {
       storeFile file('r.keystore')
-      storePassword 'srdmkt2026'
+      storePassword System.getenv('KS_PASS')
       keyAlias 'srd'
-      keyPassword 'srdmkt2026'
+      keyPassword System.getenv('KS_PASS')
     }
   }
   buildTypes {

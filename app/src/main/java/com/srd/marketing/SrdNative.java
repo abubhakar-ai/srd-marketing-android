@@ -201,6 +201,81 @@ public class SrdNative implements LocationListener {
     } });
   }
 
+  boolean updShown;
+
+  boolean canInstall() {
+    return Build.VERSION.SDK_INT < 26 || a.getPackageManager().canRequestPackageInstalls();
+  }
+
+  @JavascriptInterface
+  public void showUpdate(final String ver, final String url) {
+    a.runOnUiThread(new Runnable() { public void run() {
+      if (updShown) return;
+      updShown = true;
+      new AlertDialog.Builder(a).setTitle("Update available")
+        .setMessage("A new version of SRD Marketing (v" + ver + ") is available. Update now to get the latest features and fixes.")
+        .setPositiveButton("Update", new android.content.DialogInterface.OnClickListener() {
+          public void onClick(android.content.DialogInterface d, int w) { startUpdate(url); }
+        })
+        .setNegativeButton("Not now", null)
+        .show();
+    } });
+  }
+
+  void startUpdate(final String url) {
+    if (!canInstall()) {
+      updShown = false;
+      toast("Allow 'Install unknown apps' for SRD Marketing, then come back to update.");
+      try { a.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + a.getPackageName()))); } catch (Exception e) { }
+      return;
+    }
+    final android.app.ProgressDialog pd = new android.app.ProgressDialog(a);
+    pd.setTitle("Updating SRD Marketing");
+    pd.setMessage("Downloading update...");
+    pd.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+    pd.setCancelable(false);
+    pd.setMax(100);
+    pd.show();
+    new Thread(new Runnable() { public void run() {
+      try {
+        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+        c.setInstanceFollowRedirects(true);
+        c.setConnectTimeout(20000);
+        c.setReadTimeout(30000);
+        int len = c.getContentLength();
+        File d = new File(a.getCacheDir(), "photos");
+        d.mkdirs();
+        final File f = new File(d, "update.apk");
+        java.io.InputStream in = c.getInputStream();
+        FileOutputStream o = new FileOutputStream(f);
+        byte[] b = new byte[16384];
+        int n, got = 0, last = -1;
+        while ((n = in.read(b)) > 0) {
+          o.write(b, 0, n);
+          got += n;
+          if (len > 0) {
+            final int p = (int) (got * 100L / len);
+            if (p != last) { last = p; a.runOnUiThread(new Runnable() { public void run() { pd.setProgress(p); } }); }
+          }
+        }
+        o.close();
+        in.close();
+        if (f.length() < 100000) throw new Exception("bad file");
+        a.runOnUiThread(new Runnable() { public void run() {
+          pd.dismiss();
+          try {
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            i.setDataAndType(FileProvider.getUriForFile(a, "com.srd.marketing.fileprovider", f), "application/vnd.android.package-archive");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            a.startActivity(i);
+          } catch (Exception e) { toast("Could not open installer"); }
+        } });
+      } catch (Exception e) {
+        a.runOnUiThread(new Runnable() { public void run() { pd.dismiss(); updShown = false; toast("Update download failed. Please try again later."); } });
+      }
+    } }).start();
+  }
+
   @JavascriptInterface
   public String getVersion() {
     try { return a.getPackageManager().getPackageInfo(a.getPackageName(), 0).versionName; } catch (Exception e) { return "0"; }

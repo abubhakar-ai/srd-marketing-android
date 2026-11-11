@@ -6,8 +6,8 @@ android {
     applicationId 'com.srd.marketing'
     minSdk 24
     targetSdk 34
-    versionCode 1
-    versionName '1.0'
+    versionCode 2
+    versionName '1.1'
   }
   signingConfigs {
     srd {
@@ -30,4 +30,5 @@ android {
 }
 dependencies {
   implementation 'androidx.core:core:1.12.0'
+  implementation 'androidx.webkit:webkit:1.11.0'
 }

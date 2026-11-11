@@ -181,6 +181,11 @@ public class SrdNative implements LocationListener {
   }
 
   @JavascriptInterface
+  public String getVersion() {
+    try { return a.getPackageManager().getPackageInfo(a.getPackageName(), 0).versionName; } catch (Exception e) { return "0"; }
+  }
+
+  @JavascriptInterface
   public void shareFiles(final String text, final String json) {
     final String tx = text == null ? "" : text;
     a.runOnUiThread(new Runnable() { public void run() {

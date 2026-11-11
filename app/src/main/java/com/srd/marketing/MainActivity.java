@@ -7,6 +7,8 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
+import android.app.KeyguardManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
@@ -42,6 +44,9 @@ public class MainActivity extends Activity {
   PermissionRequest pq;
   long lastBack;
   boolean docStart, splashOff;
+  long pausedAt = 1;
+  View lockView;
+  boolean skipLock, lockBusy;
 
   @Override
   protected void onCreate(Bundle b) {
@@ -148,6 +153,7 @@ public class MainActivity extends Activity {
             g = Intent.createChooser(p.createIntent(), "Select");
             if (cam != null) g.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{cam});
           }
+          skipLock = true;
           startActivityForResult(g, 2);
         } catch (Exception e) { fcb = null; c.onReceiveValue(null); return false; }
         return true;
@@ -155,6 +161,51 @@ public class MainActivity extends Activity {
     });
     web.postDelayed(new Runnable() { public void run() { hideSplash(); } }, 15000);
     web.loadUrl(U);
+  }
+
+    void checkLock() {
+    if (!nat.isLock() || lockView != null || lockBusy) return;
+    if (skipLock) { skipLock = false; return; }
+    if (System.currentTimeMillis() - pausedAt < 300000) return;
+    showLock();
+  }
+
+  void showLock() {
+    LinearLayout l = new LinearLayout(this);
+    l.setOrientation(LinearLayout.VERTICAL);
+    l.setGravity(Gravity.CENTER);
+    l.setBackgroundColor(0xFF16161A);
+    l.setClickable(true);
+    TextView t = new TextView(this);
+    t.setText("SRD Marketing is locked");
+    t.setTextColor(Color.WHITE);
+    t.setTextSize(20);
+    t.setGravity(Gravity.CENTER);
+    t.setPadding(0, 0, 0, 32);
+    l.addView(t);
+    android.widget.Button b = new android.widget.Button(this);
+    b.setText("Unlock");
+    b.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { askUnlock(); } });
+    l.addView(b);
+    lockView = l;
+    root.addView(l, new FrameLayout.LayoutParams(-1, -1));
+    askUnlock();
+  }
+
+  void askUnlock() {
+    if (lockBusy) return;
+    try {
+      KeyguardManager km = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+      Intent i = km.createConfirmDeviceCredentialIntent("SRD Marketing", "Unlock to continue");
+      if (i == null) { unlock(); return; }
+      lockBusy = true;
+      startActivityForResult(i, 9);
+    } catch (Exception e) { lockBusy = false; unlock(); }
+  }
+
+  void unlock() {
+    if (lockView != null) { root.removeView(lockView); lockView = null; }
+    pausedAt = System.currentTimeMillis();
   }
 
   View buildSplash() {
@@ -200,6 +251,7 @@ public class MainActivity extends Activity {
     String[] all = {Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.RECORD_AUDIO};
     ArrayList<String> n = new ArrayList<String>();
     for (String p : all) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) n.add(p);
+    if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) n.add("android.permission.POST_NOTIFICATIONS");
     nat.asked = true;
     if (!n.isEmpty()) requestPermissions(n.toArray(new String[0]), 1);
   }
@@ -219,6 +271,7 @@ public class MainActivity extends Activity {
 
   @Override
   protected void onActivityResult(int q, int r, Intent d) {
+    if (q == 9) { lockBusy = false; if (r == Activity.RESULT_OK) unlock(); return; }
     if (q != 2) { super.onActivityResult(q, r, d); return; }
     if (fcb == null) return;
     Uri[] o = null;
@@ -243,8 +296,8 @@ public class MainActivity extends Activity {
   }
 
   @Override
-  protected void onResume() { super.onResume(); web.onResume(); nat.start(); }
+  protected void onResume() { super.onResume(); web.onResume(); nat.start(); checkLock(); }
 
   @Override
-  protected void onPause() { super.onPause(); CookieManager.getInstance().flush(); nat.stop(); web.onPause(); }
+  protected void onPause() { super.onPause(); pausedAt = System.currentTimeMillis(); CookieManager.getInstance().flush(); nat.stop(); web.onPause(); }
 }

@@ -1,0 +1,182 @@
+package com.srd.marketing;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
+import android.content.ContentValues;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Looper;
+import android.provider.MediaStore;
+import android.provider.Settings;
+import android.util.Base64;
+import android.webkit.JavascriptInterface;
+import android.widget.Toast;
+import androidx.core.content.FileProvider;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.util.Locale;
+
+public class SrdNative implements LocationListener {
+  final Activity a;
+  final LocationManager lm;
+  Location best;
+  boolean running, asked;
+  long lastDlg;
+
+  SrdNative(Activity a) {
+    this.a = a;
+    lm = (LocationManager) a.getSystemService(Context.LOCATION_SERVICE);
+  }
+
+  boolean has() {
+    return a.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        || a.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+  }
+
+  boolean on(String p) {
+    try { return lm.isProviderEnabled(p); } catch (Exception e) { return false; }
+  }
+
+  void consider(Location l) {
+    if (l == null) return;
+    if (best == null || l.getAccuracy() <= best.getAccuracy() || l.getTime() - best.getTime() > 20000) best = l;
+  }
+
+  void start() {
+    if (!has()) return;
+    try {
+      String[] ps = {LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER};
+      for (String p : ps) {
+        if (!lm.getAllProviders().contains(p)) continue;
+        if (!running) lm.requestLocationUpdates(p, 3000, 0, this, Looper.getMainLooper());
+        consider(lm.getLastKnownLocation(p));
+      }
+      running = true;
+    } catch (SecurityException e) { }
+  }
+
+  void stop() {
+    try { lm.removeUpdates(this); } catch (Exception e) { }
+    running = false;
+  }
+
+  @Override public void onLocationChanged(Location l) { consider(l); }
+  @Override public void onProviderEnabled(String p) { }
+  @Override public void onProviderDisabled(String p) { }
+  @Override public void onStatusChanged(String p, int s, Bundle b) { }
+
+  @JavascriptInterface
+  public String getLoc() {
+    if (!has()) return "{\"ok\":false,\"reason\":\"NO_PERMISSION\"}";
+    if (!running) a.runOnUiThread(new Runnable() { public void run() { start(); } });
+    if (!on(LocationManager.GPS_PROVIDER) && !on(LocationManager.NETWORK_PROVIDER)) return "{\"ok\":false,\"reason\":\"GPS_OFF\"}";
+    Location l = best;
+    if (l == null || System.currentTimeMillis() - l.getTime() > 600000) return "{\"ok\":false,\"reason\":\"NO_FIX\"}";
+    return String.format(Locale.US, "{\"ok\":true,\"lat\":%.7f,\"lng\":%.7f,\"acc\":%.1f,\"t\":%d}", l.getLatitude(), l.getLongitude(), l.getAccuracy(), l.getTime());
+  }
+
+  @JavascriptInterface
+  public void ensure() {
+    a.runOnUiThread(new Runnable() { public void run() {
+      if (!has()) {
+        if (!asked || a.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) {
+          asked = true;
+          a.requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 1);
+        } else {
+          dialog("Location permission needed", "Please allow Location for SRD Marketing in App Settings.", new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + a.getPackageName())));
+        }
+        return;
+      }
+      if (!on(LocationManager.GPS_PROVIDER) && !on(LocationManager.NETWORK_PROVIDER)) {
+        dialog("Location is OFF", "Please turn ON phone Location (GPS) to save visits and calls.", new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+      }
+    } });
+  }
+
+  void dialog(String t, String m, final Intent go) {
+    if (System.currentTimeMillis() - lastDlg < 60000) return;
+    lastDlg = System.currentTimeMillis();
+    new AlertDialog.Builder(a).setTitle(t).setMessage(m)
+      .setPositiveButton("Open Settings", new android.content.DialogInterface.OnClickListener() {
+        public void onClick(android.content.DialogInterface d, int w) { try { a.startActivity(go); } catch (Exception e) { } }
+      }).setNegativeButton("Cancel", null).show();
+  }
+
+  void toast(final String s) {
+    a.runOnUiThread(new Runnable() { public void run() { Toast.makeText(a, s, Toast.LENGTH_LONG).show(); } });
+  }
+
+  @JavascriptInterface
+  public void saveFile(String b64, String name, String mime) {
+    try {
+      byte[] d = Base64.decode(b64, Base64.DEFAULT);
+      name = (name == null || name.isEmpty()) ? "download" : name.replaceAll("[^A-Za-z0-9._ -]", "_");
+      if (mime == null || mime.isEmpty()) mime = "application/octet-stream";
+      Uri uri;
+      if (Build.VERSION.SDK_INT >= 29) {
+        ContentValues v = new ContentValues();
+        v.put(MediaStore.Downloads.DISPLAY_NAME, name);
+        v.put(MediaStore.Downloads.MIME_TYPE, mime);
+        v.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+        uri = a.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+        OutputStream o = a.getContentResolver().openOutputStream(uri);
+        o.write(d);
+        o.close();
+      } else {
+        File dir = a.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        dir.mkdirs();
+        File f = new File(dir, name);
+        FileOutputStream o = new FileOutputStream(f);
+        o.write(d);
+        o.close();
+        uri = FileProvider.getUriForFile(a, "com.srd.marketing.fileprovider", f);
+      }
+      toast("Saved in Downloads: " + name);
+      Intent i = new Intent(Intent.ACTION_VIEW);
+      i.setDataAndType(uri, mime);
+      i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+      try { a.startActivity(i); } catch (ActivityNotFoundException e) { }
+    } catch (Exception e) {
+      toast("Download failed");
+    }
+  }
+
+  @JavascriptInterface
+  public void shareWa(final String text, String phone) {
+    final String ph0 = phone == null ? "" : phone.replaceAll("[^0-9]", "");
+    final String ph = ph0.length() == 10 ? "91" + ph0 : ph0;
+    final String tx = text == null ? "" : text;
+    a.runOnUiThread(new Runnable() { public void run() {
+      try {
+        Intent i;
+        if (!ph.isEmpty()) {
+          i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + ph + "?text=" + Uri.encode(tx)));
+        } else {
+          i = new Intent(Intent.ACTION_SEND);
+          i.setType("text/plain");
+          i.putExtra(Intent.EXTRA_TEXT, tx);
+          i.setPackage("com.whatsapp");
+        }
+        a.startActivity(i);
+      } catch (Exception e) {
+        try {
+          Intent s = new Intent(Intent.ACTION_SEND);
+          s.setType("text/plain");
+          s.putExtra(Intent.EXTRA_TEXT, tx);
+          a.startActivity(Intent.createChooser(s, "Share"));
+        } catch (Exception e2) { }
+      }
+    } });
+  }
+}

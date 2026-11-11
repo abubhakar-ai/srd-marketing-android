@@ -327,4 +327,64 @@ public class SrdNative implements LocationListener {
       }
     } });
   }
+
+  android.content.SharedPreferences sp() { return a.getSharedPreferences("srd", Context.MODE_PRIVATE); }
+
+  @JavascriptInterface
+  public void saveSession(String t) {
+    sp().edit().putString("sess", t == null ? "" : t).apply();
+  }
+
+  @JavascriptInterface
+  public String getSession() {
+    return sp().getString("sess", "");
+  }
+
+  @JavascriptInterface
+  public boolean canLock() {
+    android.app.KeyguardManager k = (android.app.KeyguardManager) a.getSystemService(Context.KEYGUARD_SERVICE);
+    return k != null && k.isDeviceSecure();
+  }
+
+  @JavascriptInterface
+  public boolean isLock() {
+    return sp().getBoolean("lock", false);
+  }
+
+  @JavascriptInterface
+  public void setLock(boolean on) {
+    if (on && !canLock()) {
+      toast("First set a screen lock (PIN, pattern or fingerprint) in phone Settings.");
+      return;
+    }
+    sp().edit().putBoolean("lock", on).apply();
+    toast(on ? "App lock is ON" : "App lock is OFF");
+  }
+
+  android.app.PendingIntent fuIntent(int id, String t, String x) {
+    Intent i = new Intent(a, FollowupReceiver.class);
+    i.putExtra("t", t);
+    i.putExtra("x", x);
+    i.putExtra("n", id);
+    return android.app.PendingIntent.getBroadcast(a, id, i, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+  }
+
+  @JavascriptInterface
+  public void scheduleFollowups(String json) {
+    try {
+      android.app.AlarmManager am = (android.app.AlarmManager) a.getSystemService(Context.ALARM_SERVICE);
+      int old = sp().getInt("fuN", 0);
+      for (int k = 0; k < old; k++) am.cancel(fuIntent(7000 + k, "", ""));
+      org.json.JSONArray arr = new org.json.JSONArray(json);
+      int n = 0;
+      for (int k = 0; k < arr.length() && n < 40; k++) {
+        org.json.JSONObject o = arr.getJSONObject(k);
+        long at = o.getLong("at");
+        if (at <= System.currentTimeMillis()) continue;
+        am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, fuIntent(7000 + n, o.optString("t", "Follow-up"), o.optString("x", "")));
+        n++;
+      }
+      sp().edit().putInt("fuN", n).apply();
+    } catch (Exception e) { }
+  }
 }

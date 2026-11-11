@@ -233,47 +233,75 @@ public class SrdNative implements LocationListener {
     pd.setTitle("Updating SRD Marketing");
     pd.setMessage("Downloading update...");
     pd.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
-    pd.setCancelable(false);
+    pd.setCancelable(true);
     pd.setMax(100);
+    pd.setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
+      public void onCancel(android.content.DialogInterface d) { updShown = false; }
+    });
     pd.show();
-    new Thread(new Runnable() { public void run() {
-      try {
-        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-        c.setInstanceFollowRedirects(true);
-        c.setConnectTimeout(20000);
-        c.setReadTimeout(30000);
-        int len = c.getContentLength();
-        File d = new File(a.getCacheDir(), "photos");
-        d.mkdirs();
-        final File f = new File(d, "update.apk");
-        java.io.InputStream in = c.getInputStream();
-        FileOutputStream o = new FileOutputStream(f);
-        byte[] b = new byte[16384];
-        int n, got = 0, last = -1;
-        while ((n = in.read(b)) > 0) {
-          o.write(b, 0, n);
-          got += n;
-          if (len > 0) {
-            final int p = (int) (got * 100L / len);
-            if (p != last) { last = p; a.runOnUiThread(new Runnable() { public void run() { pd.setProgress(p); } }); }
+    try {
+      File dir = a.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+      dir.mkdirs();
+      final File f = new File(dir, "srd-update.apk");
+      if (f.exists()) f.delete();
+      final android.app.DownloadManager dm = (android.app.DownloadManager) a.getSystemService(Context.DOWNLOAD_SERVICE);
+      android.app.DownloadManager.Request rq = new android.app.DownloadManager.Request(Uri.parse(url));
+      rq.setTitle("SRD Marketing update");
+      rq.setMimeType("application/vnd.android.package-archive");
+      rq.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE);
+      rq.setDestinationUri(Uri.fromFile(f));
+      final long id = dm.enqueue(rq);
+      final android.os.Handler h = new android.os.Handler(Looper.getMainLooper());
+      h.post(new Runnable() { public void run() {
+        if (!pd.isShowing()) return;
+        android.database.Cursor c = dm.query(new android.app.DownloadManager.Query().setFilterById(id));
+        int st = -1;
+        int reason = 0;
+        long got = 0, tot = 0;
+        if (c != null) {
+          if (c.moveToFirst()) {
+            st = c.getInt(c.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS));
+            got = c.getLong(c.getColumnIndex(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+            tot = c.getLong(c.getColumnIndex(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+            reason = c.getInt(c.getColumnIndex(android.app.DownloadManager.COLUMN_REASON));
           }
+          c.close();
         }
-        o.close();
-        in.close();
-        if (f.length() < 100000) throw new Exception("bad file");
-        a.runOnUiThread(new Runnable() { public void run() {
+        if (st == android.app.DownloadManager.STATUS_SUCCESSFUL) {
           pd.dismiss();
+          updShown = false;
           try {
+            File d2 = new File(a.getCacheDir(), "photos");
+            d2.mkdirs();
+            File f2 = new File(d2, "update.apk");
+            java.io.FileInputStream in = new java.io.FileInputStream(f);
+            FileOutputStream out = new FileOutputStream(f2);
+            byte[] b = new byte[16384];
+            int n;
+            while ((n = in.read(b)) > 0) out.write(b, 0, n);
+            out.close();
+            in.close();
             Intent i = new Intent(Intent.ACTION_VIEW);
-            i.setDataAndType(FileProvider.getUriForFile(a, "com.srd.marketing.fileprovider", f), "application/vnd.android.package-archive");
+            i.setDataAndType(FileProvider.getUriForFile(a, "com.srd.marketing.fileprovider", f2), "application/vnd.android.package-archive");
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             a.startActivity(i);
-          } catch (Exception e) { toast("Could not open installer"); }
-        } });
-      } catch (Exception e) {
-        a.runOnUiThread(new Runnable() { public void run() { pd.dismiss(); updShown = false; toast("Update download failed. Please try again later."); } });
-      }
-    } }).start();
+          } catch (Exception ex) { toast("Could not open installer"); }
+          return;
+        }
+        if (st == android.app.DownloadManager.STATUS_FAILED) {
+          pd.dismiss();
+          updShown = false;
+          toast("Update download failed (code " + reason + "). Please try again.");
+          return;
+        }
+        if (tot > 0) pd.setProgress((int) (got * 100 / tot));
+        h.postDelayed(this, 500);
+      } });
+    } catch (Exception e) {
+      pd.dismiss();
+      updShown = false;
+      toast("Update download failed. Please try again later.");
+    }
   }
 
   @JavascriptInterface

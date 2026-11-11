@@ -28,6 +28,8 @@ jobs:
           mv ic_srd.png app/src/main/res/mipmap-nodpi/ic_srd.png
           mv ic_srd_fg.png app/src/main/res/drawable-nodpi/ic_srd_fg.png
       - name: Build
+        env:
+          KS_PASS: ${{ secrets.KS_PASS }}
         run: gradle assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         with:

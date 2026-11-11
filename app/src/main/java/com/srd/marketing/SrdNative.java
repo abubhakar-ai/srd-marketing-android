@@ -179,4 +179,51 @@ public class SrdNative implements LocationListener {
       }
     } });
   }
+
+  @JavascriptInterface
+  public void shareFiles(final String text, final String json) {
+    final String tx = text == null ? "" : text;
+    a.runOnUiThread(new Runnable() { public void run() {
+      try {
+        org.json.JSONArray arr = new org.json.JSONArray(json);
+        File d = new File(a.getCacheDir(), "photos");
+        d.mkdirs();
+        java.util.ArrayList<Uri> uris = new java.util.ArrayList<Uri>();
+        String mime = null;
+        for (int k = 0; k < arr.length(); k++) {
+          org.json.JSONObject o = arr.getJSONObject(k);
+          String nm = o.optString("n", "file").replaceAll("[^A-Za-z0-9._-]", "_");
+          String ty = o.optString("t", "application/octet-stream");
+          byte[] b = Base64.decode(o.getString("d"), Base64.DEFAULT);
+          File f = new File(d, System.currentTimeMillis() + "_" + k + "_" + nm);
+          FileOutputStream fo = new FileOutputStream(f);
+          fo.write(b);
+          fo.close();
+          uris.add(FileProvider.getUriForFile(a, "com.srd.marketing.fileprovider", f));
+          if (mime == null) mime = ty; else if (!mime.equals(ty)) mime = "*/*";
+        }
+        try {
+          android.content.ClipboardManager cb = (android.content.ClipboardManager) a.getSystemService(Context.CLIPBOARD_SERVICE);
+          cb.setPrimaryClip(android.content.ClipData.newPlainText("SRD details", tx));
+        } catch (Exception ce) { }
+        if (uris.isEmpty()) { shareWa(tx, ""); return; }
+        Intent i = new Intent(uris.size() > 1 ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND);
+        i.setType(mime);
+        i.putExtra(Intent.EXTRA_TEXT, tx);
+        if (uris.size() > 1) i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+        else i.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        toast("Details copied. If caption is missing, paste it in WhatsApp.");
+        try {
+          i.setPackage("com.whatsapp");
+          a.startActivity(i);
+        } catch (Exception e1) {
+          i.setPackage(null);
+          a.startActivity(Intent.createChooser(i, "Share"));
+        }
+      } catch (Exception e) {
+        toast("Share failed");
+      }
+    } });
+  }
 }

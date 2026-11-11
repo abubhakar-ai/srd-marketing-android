@@ -1,6 +1,7 @@
 (function(){
 if(window.__srdPoly)return;window.__srdPoly=1;
 var N=window.SRDNative;if(!N)return;
+try{var SS='srd_session',seen=false;if(N.getSession&&!localStorage.getItem(SS)){var t0=N.getSession();if(t0)localStorage.setItem(SS,t0)}setInterval(function(){try{var t=localStorage.getItem(SS);if(t){seen=true;if(N.saveSession)N.saveSession(t)}else if(seen){seen=false;if(N.saveSession)N.saveSession('')}}catch(e){}},4000)}catch(e){}
 function read(){try{return JSON.parse(N.getLoc())}catch(e){return {ok:false,reason:'ERR'}}}
 function pos(r){return {coords:{latitude:r.lat,longitude:r.lng,accuracy:r.acc,altitude:null,altitudeAccuracy:null,heading:null,speed:null},timestamp:r.t}}
 function err(code,msg){return {code:code,message:msg,PERMISSION_DENIED:1,POSITION_UNAVAILABLE:2,TIMEOUT:3}}

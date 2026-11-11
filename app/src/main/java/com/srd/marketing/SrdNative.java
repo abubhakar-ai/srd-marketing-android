@@ -180,6 +180,27 @@ public class SrdNative implements LocationListener {
     } });
   }
 
+  boolean micAsked;
+
+  @JavascriptInterface
+  public boolean hasMic() {
+    return a.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+  }
+
+  @JavascriptInterface
+  public void ensureMic() {
+    a.runOnUiThread(new Runnable() { public void run() {
+      if (hasMic()) return;
+      if (!micAsked || a.shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
+        micAsked = true;
+        a.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 7);
+      } else {
+        lastDlg = 0;
+        dialog("Microphone permission needed", "Please allow Microphone for SRD Marketing in App Settings to record voice notes.", new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + a.getPackageName())));
+      }
+    } });
+  }
+
   @JavascriptInterface
   public String getVersion() {
     try { return a.getPackageManager().getPackageInfo(a.getPackageName(), 0).versionName; } catch (Exception e) { return "0"; }

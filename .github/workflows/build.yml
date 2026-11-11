@@ -16,7 +16,9 @@ jobs:
         with:
           gradle-version: '8.7'
       - name: Decode keystore
-        run: base64 -d app/r.keystore.b64 > app/r.keystore
+        env:
+          KS_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: echo "$KS_B64" | base64 -d > app/r.keystore
       - name: Make icons
         run: |
           sudo apt-get install -y fonts-dejavu-core > /dev/null

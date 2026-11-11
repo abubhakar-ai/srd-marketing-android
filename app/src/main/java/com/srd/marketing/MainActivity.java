@@ -39,6 +39,7 @@ public class MainActivity extends Activity {
   Uri cu;
   GeolocationPermissions.Callback gcb;
   String go;
+  PermissionRequest pq;
   long lastBack;
   boolean docStart, splashOff;
 
@@ -118,7 +119,14 @@ public class MainActivity extends Activity {
       }
       @Override
       public void onPermissionRequest(final PermissionRequest q) {
-        runOnUiThread(new Runnable() { public void run() { q.grant(q.getResources()); } });
+        runOnUiThread(new Runnable() { public void run() {
+          boolean au = false;
+          for (String r : q.getResources()) if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) au = true;
+          if (au && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pq = q;
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 7);
+          } else q.grant(q.getResources());
+        } });
       }
       @Override
       public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> c, FileChooserParams p) {
@@ -201,6 +209,12 @@ public class MainActivity extends Activity {
     super.onRequestPermissionsResult(c, p, r);
     nat.start();
     if (gcb != null) { gcb.invoke(go, nat.has(), false); gcb = null; }
+    if (pq != null) {
+      try {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) pq.grant(pq.getResources()); else pq.deny();
+      } catch (Exception e) { }
+      pq = null;
+    }
   }
 
   @Override
